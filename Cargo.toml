@@ -1,0 +1,29 @@
+[package]
+name = "sentinel-agent-ip-reputation"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sentinel Core Team"]
+description = "IP Reputation agent for Sentinel - check client IPs against threat intelligence and blocklists"
+license = "MIT"
+repository = "https://github.com/raskell-io/sentinel-agent-ip-reputation"
+keywords = ["sentinel", "ip-reputation", "threat-intelligence", "security", "blocklist"]
+categories = ["network-programming", "web-programming"]
+
+[dependencies]
+sentinel-agent-sdk = { git = "https://github.com/raskell-io/sentinel-agent-rust-sdk.git", branch = "main" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+reqwest = { version = "0.12", features = ["json"] }
+ipnet = "2"
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
