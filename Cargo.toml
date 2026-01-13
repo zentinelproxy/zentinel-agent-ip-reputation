@@ -10,7 +10,7 @@ keywords = ["sentinel", "ip-reputation", "threat-intelligence", "security", "blo
 categories = ["network-programming", "web-programming"]
 
 [dependencies]
-sentinel-agent-sdk = { git = "https://github.com/raskell-io/sentinel-agent-rust-sdk.git", branch = "main" }
+sentinel-agent-sdk = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
