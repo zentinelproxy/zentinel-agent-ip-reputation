@@ -9,8 +9,11 @@ use crate::providers::{Action, ProviderError, ReputationProvider, ReputationResu
 use async_trait::async_trait;
 use sentinel_agent_sdk::prelude::*;
 use sentinel_agent_sdk::v2::prelude::*;
-use sentinel_agent_sdk::v2::{DrainReason, MetricsReport, ShutdownReason};
-use sentinel_agent_protocol::v2::{CounterMetric, GaugeMetric};
+use sentinel_agent_protocol::v2::{
+    AgentCapabilities, AgentFeatures, AgentHandlerV2, CounterMetric, DrainReason, GaugeMetric,
+    HealthStatus, MetricsReport, ShutdownReason,
+};
+use sentinel_agent_protocol::{AgentResponse, EventType, RequestHeadersEvent};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -450,15 +453,19 @@ impl Agent for IpReputationAgent {
 }
 
 /// v2 Protocol implementation for IpReputationAgent.
-impl AgentV2 for IpReputationAgent {
+#[async_trait]
+impl AgentHandlerV2 for IpReputationAgent {
     fn capabilities(&self) -> AgentCapabilities {
         AgentCapabilities::new("ip-reputation", "IP Reputation Agent", env!("CARGO_PKG_VERSION"))
-            .with_config_push(true)
-            .with_health_reporting(true)
-            .with_metrics_export(true)
-            .with_concurrent_requests(100)
-            .with_cancellation(true)
-            .with_max_processing_time_ms(5000)
+            .with_event(EventType::RequestHeaders)
+            .with_features(AgentFeatures {
+                config_push: true,
+                health_reporting: true,
+                metrics_export: true,
+                concurrent_requests: 100,
+                cancellation: true,
+                max_processing_time_ms: 5000,
+            })
     }
 
     fn health_status(&self) -> HealthStatus {
@@ -537,7 +544,7 @@ impl AgentV2 for IpReputationAgent {
         Some(report)
     }
 
-    fn on_shutdown(&self, reason: ShutdownReason, grace_period_ms: u64) {
+    async fn on_shutdown(&self, reason: ShutdownReason, grace_period_ms: u64) {
         info!(
             reason = ?reason,
             grace_period_ms = grace_period_ms,
@@ -547,7 +554,7 @@ impl AgentV2 for IpReputationAgent {
         self.draining.store(true, Ordering::SeqCst);
     }
 
-    fn on_drain(&self, duration_ms: u64, reason: DrainReason) {
+    async fn on_drain(&self, duration_ms: u64, reason: DrainReason) {
         warn!(
             reason = ?reason,
             duration_ms = duration_ms,
