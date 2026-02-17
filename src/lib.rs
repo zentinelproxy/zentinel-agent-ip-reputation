@@ -1,4 +1,4 @@
-//! IP Reputation Agent for Sentinel.
+//! IP Reputation Agent for Zentinel.
 //!
 //! Checks client IPs against threat intelligence feeds and blocklists to
 //! identify and block malicious traffic.

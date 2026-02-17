@@ -2,16 +2,16 @@
 
 use anyhow::Result;
 use clap::Parser;
-use sentinel_agent_ip_reputation::{Config, IpReputationAgent};
-use sentinel_agent_sdk::v2::{AgentRunnerV2, TransportConfig};
+use zentinel_agent_ip_reputation::{Config, IpReputationAgent};
+use zentinel_agent_sdk::v2::{AgentRunnerV2, TransportConfig};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "sentinel-agent-ip-reputation")]
-#[command(about = "IP Reputation agent for Sentinel - check client IPs against threat intelligence and blocklists")]
+#[command(name = "zentinel-agent-ip-reputation")]
+#[command(about = "IP Reputation agent for Zentinel - check client IPs against threat intelligence and blocklists")]
 #[command(version)]
 struct Args {
     /// Path to configuration file
@@ -19,7 +19,7 @@ struct Args {
     config: PathBuf,
 
     /// Unix socket path
-    #[arg(short, long, default_value = "/tmp/sentinel-ip-reputation.sock")]
+    #[arg(short, long, default_value = "/tmp/zentinel-ip-reputation.sock")]
     socket: PathBuf,
 
     /// gRPC server address (e.g., "0.0.0.0:50051")

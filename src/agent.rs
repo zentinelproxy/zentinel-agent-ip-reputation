@@ -7,13 +7,13 @@ use crate::providers::blocklist::BlocklistProvider;
 use crate::providers::tor::TorProvider;
 use crate::providers::{Action, ProviderError, ReputationProvider, ReputationResult};
 use async_trait::async_trait;
-use sentinel_agent_sdk::prelude::*;
-use sentinel_agent_sdk::v2::prelude::*;
-use sentinel_agent_protocol::v2::{
+use zentinel_agent_sdk::prelude::*;
+use zentinel_agent_sdk::v2::prelude::*;
+use zentinel_agent_protocol::v2::{
     AgentCapabilities, AgentFeatures, AgentHandlerV2, CounterMetric, DrainReason, GaugeMetric,
     HealthStatus, MetricsReport, ShutdownReason,
 };
-use sentinel_agent_protocol::{AgentResponse, EventType, RequestHeadersEvent};
+use zentinel_agent_protocol::{AgentResponse, EventType, RequestHeadersEvent};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

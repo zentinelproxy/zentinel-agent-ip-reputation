@@ -1,19 +1,19 @@
 [package]
-name = "sentinel-agent-ip-reputation"
+name = "zentinel-agent-ip-reputation"
 version = "0.2.0"
 edition = "2021"
-authors = ["Sentinel Core Team"]
-description = "IP Reputation agent for Sentinel - check client IPs against threat intelligence and blocklists"
+authors = ["Zentinel Core Team"]
+description = "IP Reputation agent for Zentinel - check client IPs against threat intelligence and blocklists"
 license = "MIT"
-repository = "https://github.com/raskell-io/sentinel-agent-ip-reputation"
-keywords = ["sentinel", "ip-reputation", "threat-intelligence", "security", "blocklist"]
+repository = "https://github.com/zentinelproxy/zentinel-agent-ip-reputation"
+keywords = ["zentinel", "ip-reputation", "threat-intelligence", "security", "blocklist"]
 categories = ["network-programming", "web-programming"]
 
 [dependencies]
 # Using local path for development until 0.2 is published to crates.io
-sentinel-agent-sdk = { path = "../sentinel-agent-rust-sdk", features = ["v2"] }
+zentinel-agent-sdk = { path = "../zentinel-agent-rust-sdk", features = ["v2"] }
 # Direct access to protocol types for metrics
-sentinel-agent-protocol = "0.3"
+zentinel-agent-protocol = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

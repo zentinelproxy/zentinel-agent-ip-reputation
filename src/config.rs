@@ -362,7 +362,7 @@ abuseipdb:
 blocklists:
   - name: "internal-blocklist"
     enabled: true
-    path: "/etc/sentinel/blocklist.txt"
+    path: "/etc/zentinel/blocklist.txt"
     format: plain              # plain, csv, or json
     action: block              # block or flag
     refresh_interval_seconds: 300

@@ -1,6 +1,6 @@
-# IP Reputation Agent for Sentinel
+# IP Reputation Agent for Zentinel
 
-An IP reputation agent for [Sentinel](https://sentinel.raskell.io) that checks client IPs against threat intelligence feeds and blocklists.
+An IP reputation agent for [Zentinel](https://zentinelproxy.io) that checks client IPs against threat intelligence feeds and blocklists.
 
 ## Features
 
@@ -15,14 +15,14 @@ An IP reputation agent for [Sentinel](https://sentinel.raskell.io) that checks c
 ## Installation
 
 ```bash
-cargo install sentinel-agent-ip-reputation
+cargo install zentinel-agent-ip-reputation
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/raskell-io/sentinel-agent-ip-reputation.git
-cd sentinel-agent-ip-reputation
+git clone https://github.com/zentinelproxy/zentinel-agent-ip-reputation.git
+cd zentinel-agent-ip-reputation
 cargo build --release
 ```
 
@@ -30,19 +30,19 @@ cargo build --release
 
 ```bash
 # Run with default config file (ip-reputation.yaml)
-sentinel-agent-ip-reputation
+zentinel-agent-ip-reputation
 
 # Specify config file
-sentinel-agent-ip-reputation -c /path/to/config.yaml
+zentinel-agent-ip-reputation -c /path/to/config.yaml
 
 # Specify socket path
-sentinel-agent-ip-reputation -s /tmp/ip-reputation.sock
+zentinel-agent-ip-reputation -s /tmp/ip-reputation.sock
 
 # Print example configuration
-sentinel-agent-ip-reputation --print-config
+zentinel-agent-ip-reputation --print-config
 
 # Validate configuration
-sentinel-agent-ip-reputation --validate
+zentinel-agent-ip-reputation --validate
 ```
 
 ## Configuration
@@ -98,7 +98,7 @@ Load blocklists from files:
 blocklists:
   - name: "internal-blocklist"
     enabled: true
-    path: "/etc/sentinel/blocklist.txt"
+    path: "/etc/zentinel/blocklist.txt"
     format: plain              # plain, csv, or json
     action: block              # block or flag
     refresh_interval_seconds: 300
@@ -134,14 +134,14 @@ When blocking or flagging requests, the following headers are added:
 | `x-ip-reputation-tor` | Set to `"true"` if IP is a Tor exit node |
 | `x-ip-reputation-proxy` | Set to `"true"` if IP is a known proxy |
 
-## Sentinel Configuration
+## Zentinel Configuration
 
-Add the agent to your Sentinel proxy configuration:
+Add the agent to your Zentinel proxy configuration:
 
 ```yaml
 agents:
   - name: ip-reputation
-    socket: /tmp/sentinel-ip-reputation.sock
+    socket: /tmp/zentinel-ip-reputation.sock
     on_request: true
     on_response: false
 ```

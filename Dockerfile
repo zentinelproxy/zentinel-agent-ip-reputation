@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 
-# Sentinel IP Reputation Agent Container Image
+# Zentinel IP Reputation Agent Container Image
 #
 # Targets:
 #   - prebuilt: For CI with pre-built binaries
@@ -10,16 +10,16 @@
 ################################################################################
 FROM gcr.io/distroless/cc-debian12:nonroot AS prebuilt
 
-COPY sentinel-agent-ip-reputation /sentinel-agent-ip-reputation
+COPY zentinel-agent-ip-reputation /zentinel-agent-ip-reputation
 
-LABEL org.opencontainers.image.title="Sentinel IP Reputation Agent" \
-      org.opencontainers.image.description="Sentinel IP Reputation Agent for Sentinel reverse proxy" \
+LABEL org.opencontainers.image.title="Zentinel IP Reputation Agent" \
+      org.opencontainers.image.description="Zentinel IP Reputation Agent for Zentinel reverse proxy" \
       org.opencontainers.image.vendor="Raskell" \
-      org.opencontainers.image.source="https://github.com/raskell-io/sentinel-agent-ip-reputation"
+      org.opencontainers.image.source="https://github.com/zentinelproxy/zentinel-agent-ip-reputation"
 
-ENV RUST_LOG=info,sentinel_agent_ip_reputation=debug \
-    SOCKET_PATH=/var/run/sentinel/ip-reputation.sock
+ENV RUST_LOG=info,zentinel_agent_ip_reputation=debug \
+    SOCKET_PATH=/var/run/zentinel/ip-reputation.sock
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/sentinel-agent-ip-reputation"]
+ENTRYPOINT ["/zentinel-agent-ip-reputation"]
