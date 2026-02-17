@@ -13,7 +13,7 @@ categories = ["network-programming", "web-programming"]
 # Using local path for development until 0.2 is published to crates.io
 zentinel-agent-sdk = { path = "../zentinel-agent-rust-sdk", features = ["v2"] }
 # Direct access to protocol types for metrics
-zentinel-agent-protocol = "0.3"
+zentinel-agent-protocol = { version = "0.5", git = "https://github.com/zentinelproxy/zentinel.git", package = "zentinel-agent-protocol" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
