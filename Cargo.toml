@@ -30,3 +30,7 @@ anyhow = "1"
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
+
+[[bin]]
+name = "zentinel-ip-reputation-agent"
+path = "src/main.rs"

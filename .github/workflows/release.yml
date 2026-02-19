@@ -13,7 +13,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: zentinel-agent-ip-reputation
+  BINARY_NAME: zentinel-ip-reputation-agent
 
 jobs:
   build:

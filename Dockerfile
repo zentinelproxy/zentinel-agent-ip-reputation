@@ -10,7 +10,7 @@
 ################################################################################
 FROM gcr.io/distroless/cc-debian12:nonroot AS prebuilt
 
-COPY zentinel-agent-ip-reputation /zentinel-agent-ip-reputation
+COPY zentinel-ip-reputation-agent /zentinel-ip-reputation-agent
 
 LABEL org.opencontainers.image.title="Zentinel IP Reputation Agent" \
       org.opencontainers.image.description="Zentinel IP Reputation Agent for Zentinel reverse proxy" \
@@ -22,4 +22,4 @@ ENV RUST_LOG=info,zentinel_agent_ip_reputation=debug \
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/zentinel-agent-ip-reputation"]
+ENTRYPOINT ["/zentinel-ip-reputation-agent"]

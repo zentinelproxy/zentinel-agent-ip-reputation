@@ -30,19 +30,19 @@ cargo build --release
 
 ```bash
 # Run with default config file (ip-reputation.yaml)
-zentinel-agent-ip-reputation
+zentinel-ip-reputation-agent
 
 # Specify config file
-zentinel-agent-ip-reputation -c /path/to/config.yaml
+zentinel-ip-reputation-agent -c /path/to/config.yaml
 
 # Specify socket path
-zentinel-agent-ip-reputation -s /tmp/ip-reputation.sock
+zentinel-ip-reputation-agent -s /tmp/ip-reputation.sock
 
 # Print example configuration
-zentinel-agent-ip-reputation --print-config
+zentinel-ip-reputation-agent --print-config
 
 # Validate configuration
-zentinel-agent-ip-reputation --validate
+zentinel-ip-reputation-agent --validate
 ```
 
 ## Configuration
