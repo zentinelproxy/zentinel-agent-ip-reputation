@@ -7,18 +7,17 @@ use crate::providers::blocklist::BlocklistProvider;
 use crate::providers::tor::TorProvider;
 use crate::providers::{Action, ProviderError, ReputationProvider, ReputationResult};
 use async_trait::async_trait;
-use zentinel_agent_sdk::prelude::*;
-use zentinel_agent_sdk::v2::prelude::*;
-use zentinel_agent_protocol::v2::{
-    AgentCapabilities, AgentFeatures, AgentHandlerV2, CounterMetric, DrainReason, GaugeMetric,
-    HealthStatus, MetricsReport, ShutdownReason,
-};
-use zentinel_agent_protocol::{AgentResponse, EventType, RequestHeadersEvent};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+use zentinel_agent_protocol::v2::{
+    AgentCapabilities, AgentFeatures, AgentHandlerV2, CounterMetric, DrainReason, GaugeMetric,
+    HealthStatus, MetricsReport, ShutdownReason,
+};
+use zentinel_agent_protocol::EventType;
+use zentinel_agent_sdk::prelude::*;
 
 /// IP Reputation agent.
 pub struct IpReputationAgent {
@@ -153,10 +152,7 @@ impl IpReputationAgent {
     }
 
     /// Extract client IP from request headers.
-    fn extract_client_ip(
-        &self,
-        headers: &HashMap<String, String>,
-    ) -> Option<IpAddr> {
+    fn extract_client_ip(&self, headers: &HashMap<String, String>) -> Option<IpAddr> {
         extract_client_ip(headers, &self.config.ip_extraction)
     }
 
@@ -322,8 +318,7 @@ impl Agent for IpReputationAgent {
             debug!(ip = %ip, "IP is allowlisted");
             self.requests_allowed.fetch_add(1, Ordering::Relaxed);
             self.allowlist_matches.fetch_add(1, Ordering::Relaxed);
-            return Decision::allow()
-                .with_tag("ip-reputation:allowlisted");
+            return Decision::allow().with_tag("ip-reputation:allowlisted");
         }
 
         // Check reputation with all providers
@@ -337,8 +332,7 @@ impl Agent for IpReputationAgent {
                 return match self.config.settings.fail_action {
                     FailAction::Allow => {
                         self.requests_allowed.fetch_add(1, Ordering::Relaxed);
-                        Decision::allow()
-                            .with_tag("ip-reputation:lookup-failed:allowed")
+                        Decision::allow().with_tag("ip-reputation:lookup-failed:allowed")
                     }
                     FailAction::Block => {
                         self.requests_blocked.fetch_add(1, Ordering::Relaxed);
@@ -423,8 +417,7 @@ impl Agent for IpReputationAgent {
                     debug!(ip = %ip, "Allowing request");
                 }
 
-                Decision::allow()
-                    .with_tag("ip-reputation:allowed")
+                Decision::allow().with_tag("ip-reputation:allowed")
             }
         }
     }
@@ -456,29 +449,29 @@ impl Agent for IpReputationAgent {
 #[async_trait]
 impl AgentHandlerV2 for IpReputationAgent {
     fn capabilities(&self) -> AgentCapabilities {
-        AgentCapabilities::new("ip-reputation", "IP Reputation Agent", env!("CARGO_PKG_VERSION"))
-            .with_event(EventType::RequestHeaders)
-            .with_features(AgentFeatures {
-                streaming_body: false,
-                websocket: false,
-                guardrails: false,
-                config_push: true,
-                health_reporting: true,
-                metrics_export: true,
-                concurrent_requests: 100,
-                cancellation: true,
-                flow_control: false,
-            })
+        AgentCapabilities::new(
+            "ip-reputation",
+            "IP Reputation Agent",
+            env!("CARGO_PKG_VERSION"),
+        )
+        .with_event(EventType::RequestHeaders)
+        .with_features(AgentFeatures {
+            streaming_body: false,
+            websocket: false,
+            guardrails: false,
+            config_push: true,
+            health_reporting: true,
+            metrics_export: true,
+            concurrent_requests: 100,
+            cancellation: true,
+            flow_control: false,
+        })
     }
 
     fn health_status(&self) -> HealthStatus {
         // Report healthy unless we're draining
         if self.is_draining() {
-            HealthStatus::degraded(
-                "ip-reputation",
-                vec!["ip-checks".to_string()],
-                1.0,
-            )
+            HealthStatus::degraded("ip-reputation", vec!["ip-checks".to_string()], 1.0)
         } else {
             HealthStatus::healthy("ip-reputation")
         }
@@ -526,7 +519,11 @@ impl AgentHandlerV2 for IpReputationAgent {
 
         report.gauges.push(GaugeMetric::new(
             "ip_reputation_agent_enabled",
-            if self.config.settings.enabled { 1.0 } else { 0.0 },
+            if self.config.settings.enabled {
+                1.0
+            } else {
+                0.0
+            },
         ));
 
         report.gauges.push(GaugeMetric::new(
@@ -666,7 +663,10 @@ mod tests {
         );
 
         let flat = flatten_headers(&headers);
-        assert_eq!(flat.get("content-type"), Some(&"application/json".to_string()));
+        assert_eq!(
+            flat.get("content-type"),
+            Some(&"application/json".to_string())
+        );
         assert_eq!(flat.get("x-test"), Some(&"value1".to_string()));
     }
 

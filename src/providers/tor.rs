@@ -70,10 +70,7 @@ impl TorProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            return Err(ProviderError::InvalidResponse(format!(
-                "HTTP {}",
-                status
-            )));
+            return Err(ProviderError::InvalidResponse(format!("HTTP {}", status)));
         }
 
         let content = response.text().await.map_err(|e| {

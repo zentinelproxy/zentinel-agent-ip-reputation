@@ -150,13 +150,8 @@ impl ReputationProvider for AbuseIPDBProvider {
         let action = self.score_to_action(score);
 
         // Cache the result
-        self.cache.set(
-            *ip,
-            score,
-            self.name(),
-            data.is_tor,
-            data.is_public_proxy,
-        );
+        self.cache
+            .set(*ip, score, self.name(), data.is_tor, data.is_public_proxy);
 
         debug!(
             ip = %ip,
@@ -220,11 +215,8 @@ mod tests {
     #[test]
     fn test_score_to_action() {
         let cache = Arc::new(ReputationCache::new(3600, 1000));
-        let provider = AbuseIPDBProvider::new(
-            create_test_config(),
-            create_test_thresholds(),
-            cache,
-        );
+        let provider =
+            AbuseIPDBProvider::new(create_test_config(), create_test_thresholds(), cache);
 
         assert_eq!(provider.score_to_action(0), Action::Allow);
         assert_eq!(provider.score_to_action(49), Action::Allow);
@@ -237,11 +229,8 @@ mod tests {
     #[test]
     fn test_provider_name() {
         let cache = Arc::new(ReputationCache::new(3600, 1000));
-        let provider = AbuseIPDBProvider::new(
-            create_test_config(),
-            create_test_thresholds(),
-            cache,
-        );
+        let provider =
+            AbuseIPDBProvider::new(create_test_config(), create_test_thresholds(), cache);
 
         assert_eq!(provider.name(), "abuseipdb");
     }
@@ -269,11 +258,8 @@ mod tests {
         // Pre-populate cache
         cache.set(ip, 75, "abuseipdb", true, false);
 
-        let provider = AbuseIPDBProvider::new(
-            create_test_config(),
-            create_test_thresholds(),
-            cache,
-        );
+        let provider =
+            AbuseIPDBProvider::new(create_test_config(), create_test_thresholds(), cache);
 
         let result = provider.check(&ip).await.unwrap();
         assert!(result.cached);

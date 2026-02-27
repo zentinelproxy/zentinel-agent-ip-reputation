@@ -145,7 +145,10 @@ impl ReputationProvider for BlocklistProvider {
 }
 
 /// Load a blocklist from a file.
-fn load_blocklist(path: &Path, format: BlocklistFormat) -> Result<HashSet<BlocklistEntry>, ProviderError> {
+fn load_blocklist(
+    path: &Path,
+    format: BlocklistFormat,
+) -> Result<HashSet<BlocklistEntry>, ProviderError> {
     let content = std::fs::read_to_string(path)?;
 
     match format {
@@ -191,10 +194,7 @@ fn load_json_blocklist(content: &str) -> Result<HashSet<BlocklistEntry>, Provide
     let ips: Vec<String> = serde_json::from_str(content)
         .map_err(|e| ProviderError::InvalidResponse(format!("Invalid JSON: {}", e)))?;
 
-    let entries = ips
-        .iter()
-        .filter_map(|ip| parse_entry(ip.trim()))
-        .collect();
+    let entries = ips.iter().filter_map(|ip| parse_entry(ip.trim())).collect();
 
     Ok(entries)
 }
@@ -304,7 +304,10 @@ mod tests {
         let provider = BlocklistProvider::new(config).unwrap();
 
         // Should be blocked
-        let result = provider.check(&"192.168.1.1".parse().unwrap()).await.unwrap();
+        let result = provider
+            .check(&"192.168.1.1".parse().unwrap())
+            .await
+            .unwrap();
         assert_eq!(result.action, Action::Block);
         assert_eq!(result.score, Some(100));
 
@@ -332,7 +335,10 @@ mod tests {
 
         let provider = BlocklistProvider::new(config).unwrap();
 
-        let result = provider.check(&"192.168.1.1".parse().unwrap()).await.unwrap();
+        let result = provider
+            .check(&"192.168.1.1".parse().unwrap())
+            .await
+            .unwrap();
         assert_eq!(result.action, Action::Flag);
     }
 }
