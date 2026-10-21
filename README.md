@@ -1,206 +1,192 @@
-# IP Reputation Agent for Zentinel
+<p align="center">
+  <a href="https://zentinelproxy.io">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zentinelproxy/design/main/marks/lockup/zentinel-lockup-dark.svg">
+      <img alt="Zentinel" src="https://raw.githubusercontent.com/zentinelproxy/design/main/marks/lockup/zentinel-lockup-light.svg" height="52">
+    </picture>
+  </a>
+</p>
 
-An IP reputation agent for [Zentinel](https://zentinelproxy.io) that checks client IPs against threat intelligence feeds and blocklists.
+<h3 align="center">IP reputation agent</h3>
 
-## Features
+<p align="center">Checks the client IP of each request against AbuseIPDB, local blocklists and the Tor exit list, at the request-headers stage.</p>
 
-- **AbuseIPDB Integration** - Query AbuseIPDB API for IP reputation scores
-- **Custom Blocklists** - Load blocklists from CSV, JSON, or plain text files
-- **Tor Exit Node Detection** - Check against Tor exit node list
-- **Reputation Thresholds** - Block/allow based on configurable score thresholds
-- **Caching** - Cache lookups with configurable TTL
-- **Fail-Open/Closed** - Configurable behavior when lookup fails
-- **Allowlist Support** - Always allow specific IPs or CIDR ranges
+<p align="center">
+  <a href="https://github.com/zentinelproxy/zentinel-agent-ip-reputation/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zentinelproxy/zentinel-agent-ip-reputation/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-9b4d8a?style=flat&amp;labelColor=1f161e">
+  <img alt="Agent protocol v2" src="https://img.shields.io/badge/agent%20protocol-v2-f68d31?style=flat&amp;labelColor=1f161e">
+</p>
 
-## Installation
+<p align="center">
+  <a href="https://registry.zentinelproxy.io/ip-reputation/">Registry</a> &middot;
+  <a href="https://docs.zentinelproxy.io">Docs</a> &middot;
+  <a href="https://github.com/zentinelproxy">All repositories</a>
+</p>
 
-### Using Bundle (Recommended)
+For operators who want to turn away traffic from known-bad addresses before it reaches the upstream. The agent reads the client IP from request headers, skips anything on its allowlist, asks every enabled provider, and applies the most severe answer: block with a 403, flag (allow and add headers for the upstream), or allow. If every provider fails, `settings.fail_action` decides (`allow` by default); if the agent itself is unreachable, the `failure-mode` of the Zentinel filter decides.
+
+## Quick start
 
 ```bash
-# Install just this agent
 zentinel bundle install ip-reputation
 
-# Or install all bundled agents
-zentinel bundle install
+printf '203.0.113.7\n' > blocklist.txt
+cat > ip-reputation.yaml <<'EOF'
+blocklists:
+  - name: local
+    path: ./blocklist.txt
+EOF
+
+zentinel-ip-reputation-agent -c ip-reputation.yaml -s /tmp/zentinel-ip-reputation.sock
 ```
 
-The bundle command downloads the correct binary for your platform and places it in the standard location. See the [bundle documentation](https://docs.zentinelproxy.io/deployment/bundle/) for details.
+```kdl
+system {
+    worker-threads 0
+}
 
-### Using Cargo
+listeners {
+    listener "http" {
+        address "0.0.0.0:8080"
+        protocol "http"
+    }
+}
 
-Not supported. `zentinel-agent-ip-reputation` is not published on crates.io, and it depends on
-`zentinel-agent-protocol` through a path dependency, so neither
-`cargo install zentinel-agent-ip-reputation` nor `cargo install --git` works. Use a prebuilt
-binary or build from source (below).
+upstreams {
+    upstream "backend" {
+        target "127.0.0.1:3000"
+    }
+}
 
-### Prebuilt Binaries
+agents {
+    agent "ip-reputation" type="custom" {
+        unix-socket "/tmp/zentinel-ip-reputation.sock"
+        events "request_headers"
+        timeout-ms 1000
+    }
+}
 
-Each [release](https://github.com/zentinelproxy/zentinel-agent-ip-reputation/releases) ships binaries
-for `linux-x86_64`, `linux-aarch64`, and `darwin-aarch64`:
+filters {
+    filter "ip-reputation" {
+        type "agent"
+        agent "ip-reputation"
+        failure-mode "closed"
+    }
+}
 
-```bash
-VERSION=0.4.0
-PLATFORM=linux-x86_64   # or linux-aarch64, darwin-aarch64
-curl -fsSL -o zentinel-ip-reputation-agent.tar.gz \
-  "https://github.com/zentinelproxy/zentinel-agent-ip-reputation/releases/download/v${VERSION}/zentinel-ip-reputation-agent-${VERSION}-${PLATFORM}.tar.gz"
-tar -xzf zentinel-ip-reputation-agent.tar.gz
-sudo install -m 0755 zentinel-ip-reputation-agent /usr/local/bin/
+routes {
+    route "default" {
+        matches { path-prefix "/" }
+        upstream "backend"
+        filters "ip-reputation"
+    }
+}
 ```
 
-### From Source
+`curl -H 'X-Forwarded-For: 203.0.113.7' http://localhost:8080/` now returns 403 with `x-ip-reputation-blocked: true`. The `timeout-ms` leaves room for an AbuseIPDB lookup on a cache miss; with local blocklists only, it can be much lower.
 
-Building from source requires the [zentinel](https://github.com/zentinelproxy/zentinel) repository checked out
-**next to** this one, because `zentinel-agent-protocol` is a path dependency:
+## Install
+
+### Bundle (recommended)
 
 ```bash
-git clone https://github.com/zentinelproxy/zentinel
+zentinel bundle install ip-reputation
+```
+
+Downloads the release binary pinned in Zentinel's bundle lock and installs it as `zentinel-ip-reputation-agent`.
+
+### Release binaries
+
+Tarballs for `linux-x86_64`, `linux-aarch64` and `darwin-aarch64` are attached to each [release](https://github.com/zentinelproxy/zentinel-agent-ip-reputation/releases).
+
+### From source
+
+`cargo install --git` does not work for this crate: it depends on a sibling checkout of [`zentinel-agent-rust-sdk`](https://github.com/zentinelproxy/zentinel-agent-rust-sdk) by path.
+
+```bash
+git clone https://github.com/zentinelproxy/zentinel-agent-rust-sdk
 git clone https://github.com/zentinelproxy/zentinel-agent-ip-reputation
 cd zentinel-agent-ip-reputation
-cargo build --release
-```
-
-## Usage
-
-```bash
-# Run with default config file (ip-reputation.yaml)
-zentinel-ip-reputation-agent
-
-# Specify config file
-zentinel-ip-reputation-agent -c /path/to/config.yaml
-
-# Specify socket path
-zentinel-ip-reputation-agent -s /tmp/ip-reputation.sock
-
-# Print example configuration
-zentinel-ip-reputation-agent --print-config
-
-# Validate configuration
-zentinel-ip-reputation-agent --validate
+cargo build --release   # needs protoc
 ```
 
 ## Configuration
 
-### Basic Structure
+The agent reads a YAML file (`-c`, default `ip-reputation.yaml`; it must exist). It also accepts configuration over the protocol (`on_configure`), but only logs it, and Zentinel 0.6.50 does not forward an `agent { config { ... } }` block anyway, so set everything in the file.
 
-```yaml
-settings:
-  enabled: true
-  fail_action: allow           # allow or block when lookup fails
-  log_blocked: true
-  log_allowed: false
+| Option | Default | Meaning |
+|---|---|---|
+| `-c`, `--config` | `ip-reputation.yaml` | Path to the YAML configuration file. |
+| `-s`, `--socket` | `/tmp/zentinel-ip-reputation.sock` | Unix socket to listen on. |
+| `--grpc-address` | none | Also listen for gRPC on this address, e.g. `0.0.0.0:50051`. |
+| `-L`, `--log-level` | `info` | Log level; `RUST_LOG` takes precedence. |
+| `--print-config` | | Print an example configuration and exit. |
+| `--validate` | | Load and validate the configuration, then exit. |
 
-# IP extraction from request headers
-ip_extraction:
-  headers:
-    - "x-forwarded-for"
-    - "x-real-ip"
-    - "cf-connecting-ip"
-  use_first_ip: true           # Use first IP from X-Forwarded-For
+Configuration file keys (unknown keys are ignored, so check spelling). `${VAR}` in the file is replaced with the environment variable, or an empty string if unset.
 
-# Reputation score thresholds (0-100, higher = worse)
-thresholds:
-  block_score: 80              # Block if score >= 80
-  flag_score: 50               # Flag (add header) if score >= 50
+| Option | Default | Meaning |
+|---|---|---|
+| `settings.enabled` | `true` | Master switch; `false` allows everything. |
+| `settings.fail_action` | `allow` | `allow` or `block` (403 with `x-ip-reputation-error: lookup-failed`) when every provider lookup fails. |
+| `settings.log_blocked` | `true` | Log blocked requests at info level. |
+| `settings.log_allowed` | `false` | Log allowed requests at debug level. |
+| `ip_extraction.headers` | `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip` | Headers to read the client IP from, first match wins. |
+| `ip_extraction.use_first_ip` | `true` | Take the first (`true`) or last (`false`) address of a comma-separated header. |
+| `thresholds.block_score` | `80` | Block when the AbuseIPDB score is at least this (0 to 100). |
+| `thresholds.flag_score` | `50` | Flag when the score is at least this; must not exceed `block_score`. |
+| `abuseipdb.enabled` | `true` | Enable AbuseIPDB lookups (the section itself is optional). |
+| `abuseipdb.api_key` | required | API key; validation fails if empty while enabled. Use `"${ABUSEIPDB_API_KEY}"`. |
+| `abuseipdb.max_age_days` | `90` | Only count reports from the last N days. |
+| `abuseipdb.cache_ttl_seconds` | `3600` | How long a score is cached (in-memory, up to 10,000 IPs). |
+| `abuseipdb.timeout_ms` | `5000` | HTTP timeout for the API call. |
+| `blocklists[].name` | required | Name used in logs and the reason header. |
+| `blocklists[].enabled` | `true` | Enable this list. |
+| `blocklists[].path` | required | File path; validation fails if it does not exist. |
+| `blocklists[].format` | `plain` | `plain` (one IP or CIDR per line, `#` comments), `csv` (first column), or `json` (array of strings). |
+| `blocklists[].action` | `block` | `block` or `flag` on a match. |
+| `blocklists[].refresh_interval_seconds` | `300` | Re-read the file on the first request after this interval. |
+| `tor.enabled` | `true` | Enable Tor exit node detection (the section itself is optional). |
+| `tor.action` | `flag` | `block` or `flag` for a Tor exit node. |
+| `tor.exit_node_list_url` | `https://check.torproject.org/torbulkexitlist` | Where the exit list is fetched from. |
+| `tor.refresh_interval_seconds` | `3600` | Re-fetch the list on the first request after this interval. |
+| `allowlist` | empty | IPs or CIDRs that skip all checks. |
 
-# IP allowlist - always allowed, skips all checks
-allowlist:
-  - "127.0.0.1"
-  - "10.0.0.0/8"
-  - "192.168.0.0/16"
-  - "172.16.0.0/12"
-```
+Full reference: <https://registry.zentinelproxy.io/ip-reputation/>
 
-### AbuseIPDB Provider
+## How it works
 
-Query the [AbuseIPDB](https://www.abuseipdb.com/) API for IP reputation scores:
+- **Client IP comes from headers only.** The agent does not use the connection address Zentinel reports. A request with none of the configured headers is allowed unchecked, and a header the client sets itself is trusted, so put the agent behind something that overwrites `X-Forwarded-For`, or list only headers your edge controls.
+- **Providers.** [AbuseIPDB](https://www.abuseipdb.com/) (score mapped through the thresholds, cached), file blocklists, and the Tor exit list. Lookups run in sequence on the request path; a cache miss waits for the AbuseIPDB call, and a due Tor refresh waits for the download.
+- **Block** returns 403 with `x-ip-reputation-blocked`, `x-ip-reputation-score` (`N/A` without a score), `x-ip-reputation-reason` and, for Tor, `x-ip-reputation-tor`.
+- **Flag** allows the request and adds `x-ip-reputation-flagged`, `x-ip-reputation-score`, and where known `x-ip-reputation-tor` and `x-ip-reputation-proxy` (AbuseIPDB public proxy) to the request sent upstream.
 
-```yaml
-abuseipdb:
-  enabled: true
-  api_key: "${ABUSEIPDB_API_KEY}"  # Use environment variable
-  max_age_days: 90             # Only consider reports from last 90 days
-  cache_ttl_seconds: 3600      # Cache results for 1 hour
-  timeout_ms: 5000             # API timeout
-```
-
-### File-Based Blocklists
-
-Load blocklists from files:
-
-```yaml
-blocklists:
-  - name: "internal-blocklist"
-    enabled: true
-    path: "/etc/zentinel/blocklist.txt"
-    format: plain              # plain, csv, or json
-    action: block              # block or flag
-    refresh_interval_seconds: 300
-```
-
-Supported formats:
-- **plain** - One IP/CIDR per line (comments with `#`)
-- **csv** - First column is IP/CIDR
-- **json** - Array of IP/CIDR strings
-
-### Tor Exit Node Detection
-
-Detect Tor exit nodes:
-
-```yaml
-tor:
-  enabled: true
-  action: flag                 # block or flag
-  exit_node_list_url: "https://check.torproject.org/torbulkexitlist"
-  refresh_interval_seconds: 3600
-```
-
-## Response Headers
-
-When blocking or flagging requests, the following headers are added:
-
-| Header | Description |
-|--------|-------------|
-| `x-ip-reputation-blocked` | Set to `"true"` when request is blocked |
-| `x-ip-reputation-flagged` | Set to `"true"` when request is flagged |
-| `x-ip-reputation-score` | The reputation score (0-100) |
-| `x-ip-reputation-reason` | Why the action was taken |
-| `x-ip-reputation-tor` | Set to `"true"` if IP is a Tor exit node |
-| `x-ip-reputation-proxy` | Set to `"true"` if IP is a known proxy |
-
-## Zentinel Configuration
-
-Add the agent to your Zentinel proxy configuration:
-
-```yaml
-agents:
-  - name: ip-reputation
-    socket: /tmp/zentinel-ip-reputation.sock
-    on_request: true
-    on_response: false
-```
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `ABUSEIPDB_API_KEY` | API key for AbuseIPDB (required if AbuseIPDB is enabled) |
-
-## Best Practices
-
-1. **Always use an allowlist** - Add your infrastructure IPs (load balancers, internal services)
-2. **Start with fail-open** - Use `fail_action: allow` until you trust your configuration
-3. **Use appropriate thresholds** - 80+ for blocking, 50+ for flagging is a good start
-4. **Cache API responses** - Reduce API calls and latency with caching
-5. **Monitor blocked IPs** - Enable `log_blocked: true` to track what's being blocked
-
-## Testing
-
-Run the test suite:
+## Development
 
 ```bash
-cargo test
+git clone https://github.com/zentinelproxy/zentinel-agent-rust-sdk ../zentinel-agent-rust-sdk
+cargo build
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 ```
+
+Needs stable Rust (CI uses `dtolnay/rust-toolchain@stable`) and `protoc` (CI installs `protobuf-compiler`).
+
+## Related
+
+- [Registry page](https://registry.zentinelproxy.io/ip-reputation/)
+- [Agent configuration](https://docs.zentinelproxy.io/configuration/agents/)
+- [Agent protocol v2](https://docs.zentinelproxy.io/agents/v2/)
+- [Denylist agent](https://github.com/zentinelproxy/zentinel-agent-denylist), for static IP and path rules
+- [Zentinel](https://github.com/zentinelproxy/zentinel)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT (declared in Cargo.toml; this repository has no LICENSE file yet).
+
+---
+
+<p align="center">
+  <sub>Part of <a href="https://zentinelproxy.io">Zentinel</a>, the security-first reverse proxy. The shisa guards the gate.</sub>
+</p>
