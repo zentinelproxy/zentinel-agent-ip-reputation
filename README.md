@@ -23,14 +23,14 @@
   <a href="https://github.com/zentinelproxy">All repositories</a>
 </p>
 
-For operators who want to turn away traffic from known-bad addresses before it reaches the upstream. The agent reads the client IP from request headers, skips anything on its allowlist, asks every enabled provider, and applies the most severe answer: block with a 403, flag (allow and add headers for the upstream), or allow. If every provider fails, `settings.fail_action` decides (`allow` by default); if the agent itself is unreachable, the `failure-mode` of the Zentinel filter decides.
+For operators who want to turn away traffic from known-bad addresses before it reaches the upstream. The agent takes the client IP Zentinel reports for the connection, skips anything on its allowlist, asks every enabled provider, and applies the most severe answer: block with a 403, flag (allow and add headers for the upstream), or allow. If every provider fails, `settings.fail_action` decides (`allow` by default); if the agent itself is unreachable, the `failure-mode` of the Zentinel filter decides.
 
 ## Quick start
 
 ```bash
 zentinel bundle install ip-reputation
 
-printf '203.0.113.7\n' > blocklist.txt
+printf '127.0.0.1\n' > blocklist.txt   # block yourself, to see it work
 cat > ip-reputation.yaml <<'EOF'
 blocklists:
   - name: local
@@ -83,7 +83,7 @@ routes {
 }
 ```
 
-`curl -H 'X-Forwarded-For: 203.0.113.7' http://localhost:8080/` now returns 403 with `x-ip-reputation-blocked: true`. The `timeout-ms` leaves room for an AbuseIPDB lookup on a cache miss; with local blocklists only, it can be much lower.
+`curl http://localhost:8080/` now returns 403 with `x-ip-reputation-blocked: true`, and so does `curl -H 'X-Forwarded-For: 198.51.100.1' http://localhost:8080/`: the header is ignored. The `timeout-ms` leaves room for an AbuseIPDB lookup on a cache miss; with local blocklists only, it can be much lower.
 
 ## Install
 
@@ -131,8 +131,9 @@ Configuration file keys (unknown keys are ignored, so check spelling). `${VAR}` 
 | `settings.fail_action` | `allow` | `allow` or `block` (403 with `x-ip-reputation-error: lookup-failed`) when every provider lookup fails. |
 | `settings.log_blocked` | `true` | Log blocked requests at info level. |
 | `settings.log_allowed` | `false` | Log allowed requests at debug level. |
-| `ip_extraction.headers` | `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip` | Headers to read the client IP from, first match wins. |
-| `ip_extraction.use_first_ip` | `true` | Take the first (`true`) or last (`false`) address of a comma-separated header. |
+| `ip_extraction.trusted_proxies` | empty | IPs or CIDRs of proxies in front of Zentinel whose forwarding headers are believed. Empty: forwarding headers are ignored. |
+| `ip_extraction.headers` | `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip` | Forwarding headers read when the connection comes from a trusted proxy, first present wins. |
+| `ip_extraction.use_first_ip` | none | No longer used (a warning is logged); the right-most untrusted hop is always taken. |
 | `thresholds.block_score` | `80` | Block when the AbuseIPDB score is at least this (0 to 100). |
 | `thresholds.flag_score` | `50` | Flag when the score is at least this; must not exceed `block_score`. |
 | `abuseipdb.enabled` | `true` | Enable AbuseIPDB lookups (the section itself is optional). |
@@ -156,7 +157,7 @@ Full reference: <https://registry.zentinelproxy.io/ip-reputation/>
 
 ## How it works
 
-- **Client IP comes from headers only.** The agent does not use the connection address Zentinel reports. A request with none of the configured headers is allowed unchecked, and a header the client sets itself is trusted, so put the agent behind something that overwrites `X-Forwarded-For`, or list only headers your edge controls.
+- **Client IP** is the connection address Zentinel reports in the request metadata; `X-Forwarded-For` and similar headers, which the client can set, are ignored. If Zentinel sits behind your own load balancer, list it in the listener's `trusted-proxies` in Zentinel (0.6.48 and later): Zentinel then reports the real client in the metadata, and the agent needs nothing more. `ip_extraction.trusted_proxies` is for older Zentinel versions, which pass forwarding headers through unchanged: for connections from those addresses the agent reads the forwarding headers right to left and takes the first hop that is not a trusted proxy. A request without a usable address is never allowlisted; it is handled like a failed lookup (`settings.fail_action`).
 - **Providers.** [AbuseIPDB](https://www.abuseipdb.com/) (score mapped through the thresholds, cached), file blocklists, and the Tor exit list. Lookups run in sequence on the request path; a cache miss waits for the AbuseIPDB call, and a due Tor refresh waits for the download.
 - **Block** returns 403 with `x-ip-reputation-blocked`, `x-ip-reputation-score` (`N/A` without a score), `x-ip-reputation-reason` and, for Tor, `x-ip-reputation-tor`.
 - **Flag** allows the request and adds `x-ip-reputation-flagged`, `x-ip-reputation-score`, and where known `x-ip-reputation-tor` and `x-ip-reputation-proxy` (AbuseIPDB public proxy) to the request sent upstream.

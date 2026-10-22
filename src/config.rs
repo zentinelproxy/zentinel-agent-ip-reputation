@@ -80,22 +80,34 @@ pub enum FailAction {
 }
 
 /// IP extraction configuration.
+///
+/// The client IP is the connection address Zentinel reports in the request
+/// metadata. Forwarding headers are read only when that address is one of
+/// `trusted_proxies`, and then the right-most hop that is not a trusted proxy
+/// is the client.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IpExtractionConfig {
-    /// Headers to check for client IP, in order of preference.
+    /// Proxies (IPs or CIDR ranges) whose forwarding headers are believed.
+    /// Empty (the default): forwarding headers are ignored.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+
+    /// Forwarding headers to read behind a trusted proxy, first present wins.
     #[serde(default = "default_ip_headers")]
     pub headers: Vec<String>,
 
-    /// Use first IP from X-Forwarded-For (true) or last IP (false).
-    #[serde(default = "default_true")]
-    pub use_first_ip: bool,
+    /// No longer used: the right-most untrusted hop is always taken. Kept so
+    /// that existing files still parse; a warning is logged when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_first_ip: Option<bool>,
 }
 
 impl Default for IpExtractionConfig {
     fn default() -> Self {
         Self {
+            trusted_proxies: Vec::new(),
             headers: default_ip_headers(),
-            use_first_ip: true,
+            use_first_ip: None,
         }
     }
 }
@@ -301,6 +313,10 @@ impl Config {
             }
         }
 
+        // Validate trusted proxies
+        crate::client_ip::TrustedProxies::parse(&self.ip_extraction.trusted_proxies)
+            .map_err(|e| anyhow::anyhow!("ip_extraction.trusted_proxies: {}", e))?;
+
         // Validate allowlist entries can be parsed
         for entry in &self.allowlist {
             if entry.parse::<IpAddr>().is_err() && entry.parse::<IpNet>().is_err() {
@@ -337,13 +353,14 @@ settings:
   log_blocked: true
   log_allowed: false
 
-# IP extraction from request headers
+# Client IP: the connection address Zentinel reports. Forwarding headers are
+# only read when that address is a trusted proxy (right-most untrusted hop).
 ip_extraction:
+  trusted_proxies: []          # e.g. ["10.0.0.0/8"] for a load balancer in front
   headers:
     - "x-forwarded-for"
     - "x-real-ip"
     - "cf-connecting-ip"
-  use_first_ip: true           # Use first IP from X-Forwarded-For
 
 # Reputation score thresholds (0-100, higher = worse)
 thresholds:
@@ -442,7 +459,7 @@ mod tests {
         let config = IpExtractionConfig::default();
         assert_eq!(config.headers.len(), 3);
         assert_eq!(config.headers[0], "x-forwarded-for");
-        assert!(config.use_first_ip);
+        assert!(config.trusted_proxies.is_empty());
     }
 
     #[test]
