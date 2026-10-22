@@ -95,6 +95,17 @@ zentinel bundle install ip-reputation
 
 Downloads the release binary pinned in Zentinel's bundle lock and installs it as `zentinel-ip-reputation-agent`.
 
+> [!WARNING]
+> The published `0.4.0` release, which Zentinel 26.10_7's bundle lock pins,
+> was not built from its tag (it reports `zentinel-agent-ip-reputation 0.2.0`)
+> and exits at startup unless `ip-reputation.yaml` exists in its working
+> directory. Given a file, it speaks the removed v1 framing on the Unix
+> socket, so the proxy never completes a handshake and, under
+> `failure-mode "closed"`, refuses every request (`503`); `--grpc-address`
+> does not listen either.
+> Use `0.5.0` or later, the first release built and smoke-tested by the shared
+> release pipeline (below).
+
 ### Release binaries
 
 Tarballs for `linux-x86_64`, `linux-aarch64` and `darwin-aarch64` are attached to each [release](https://github.com/zentinelproxy/zentinel-agent-ip-reputation/releases).
@@ -112,16 +123,17 @@ cargo build --release   # needs protoc
 
 ## Configuration
 
-The agent reads a YAML file (`-c`, default `ip-reputation.yaml`; it must exist). It also accepts configuration over the protocol (`on_configure`), but only logs it, and Zentinel 0.6.50 does not forward an `agent { config { ... } }` block anyway, so set everything in the file.
+The agent reads a YAML file: `-c <path>` (which must exist), or else `ip-reputation.yaml` in the working directory if there is one. Without either it starts with the defaults: no provider enabled, every request allowed. It also accepts configuration over the protocol (`on_configure`), but only logs it, and Zentinel 0.6.50 does not forward an `agent { config { ... } }` block anyway, so set everything in the file.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `-c`, `--config` | `ip-reputation.yaml` | Path to the YAML configuration file. |
+| `-c`, `--config` | `ip-reputation.yaml` if present | Path to the YAML configuration file. An explicit path that does not exist is an error. |
 | `-s`, `--socket` | `/tmp/zentinel-ip-reputation.sock` | Unix socket to listen on. |
 | `--grpc-address` | none | Also listen for gRPC on this address, e.g. `0.0.0.0:50051`. |
 | `-L`, `--log-level` | `info` | Log level; `RUST_LOG` takes precedence. |
 | `--print-config` | | Print an example configuration and exit. |
 | `--validate` | | Load and validate the configuration, then exit. |
+| `-V`, `--version` | | Print `zentinel-ip-reputation-agent <version>` and exit. |
 
 Configuration file keys (unknown keys are ignored, so check spelling). `${VAR}` in the file is replaced with the environment variable, or an empty string if unset.
 
@@ -173,6 +185,36 @@ cargo fmt --all --check
 ```
 
 Needs stable Rust (CI uses `dtolnay/rust-toolchain@stable`) and `protoc` (CI installs `protobuf-compiler`).
+
+## Releases and smoke test
+
+Releases go through the shared agent pipeline
+([`zentinelproxy/.github`](https://github.com/zentinelproxy/.github/tree/main/agent-smoke)):
+pushing a tag `vX.Y.Z` that matches `Cargo.toml` builds `zentinel-ip-reputation-agent` with
+`--locked` for `linux-x86_64`, `linux-aarch64` and `darwin-aarch64`, checks
+that `zentinel-ip-reputation-agent --version` prints `zentinel-ip-reputation-agent X.Y.Z`, runs
+[`scripts/smoke-test.sh`](scripts/smoke-test.sh) behind the latest Zentinel
+release on every platform, and only then publishes the tarballs
+`zentinel bundle install` downloads. CI runs the same pipeline on
+`linux-x86_64` for every push and pull request.
+
+The smoke test runs the release binary behind a real Zentinel with the agent,
+filter and route all `failure-mode "closed"`, over the Unix socket (the
+transport `zentinel bundle install` uses) and gRPC, with local blocklist files only. It checks that the agent starts and
+allows without a config file, that a blocklisted client gets `403` and never
+reaches the upstream (also when it claims another address in
+`X-Forwarded-For`), that the allowlist wins over the blocklist, that an
+unlisted client is forwarded, and that the request is refused once the agent
+is stopped (so the agent really is on the request path).
+
+Run it locally:
+
+```bash
+gh release download 26.10_7 --repo zentinelproxy/zentinel --pattern 'zentinel-26.10_7-darwin-arm64.tar.gz*'
+shasum -a 256 -c zentinel-26.10_7-darwin-arm64.tar.gz.sha256 && tar xzf zentinel-26.10_7-darwin-arm64.tar.gz
+cargo build --release --locked
+AGENT_SMOKE=../.github/agent-smoke/smoke.py scripts/smoke-test.sh target/release/zentinel-ip-reputation-agent ./zentinel
+```
 
 ## Related
 

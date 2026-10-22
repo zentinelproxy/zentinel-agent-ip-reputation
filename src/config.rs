@@ -6,7 +6,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 /// Root configuration for IP Reputation agent.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// The default (no file) enables no provider: every request is allowed.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Config {
     /// Global settings.
     #[serde(default)]
