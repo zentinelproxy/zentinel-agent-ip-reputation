@@ -183,7 +183,7 @@ Needs stable Rust (CI uses `dtolnay/rust-toolchain@stable`) and `protoc` (CI ins
 
 ## License
 
-MIT (declared in Cargo.toml; this repository has no LICENSE file yet).
+MIT, see [`LICENSE`](LICENSE).
 
 ---
 
