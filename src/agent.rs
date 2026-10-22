@@ -1,13 +1,13 @@
 //! IP Reputation agent implementation.
 
 use crate::cache::ReputationCache;
-use crate::config::{AllowlistEntry, Config, FailAction, IpExtractionConfig};
+use crate::client_ip::{resolve_client_ip, TrustedProxies};
+use crate::config::{AllowlistEntry, Config, FailAction};
 use crate::providers::abuseipdb::AbuseIPDBProvider;
 use crate::providers::blocklist::BlocklistProvider;
 use crate::providers::tor::TorProvider;
 use crate::providers::{Action, ProviderError, ReputationProvider, ReputationResult};
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -24,6 +24,8 @@ pub struct IpReputationAgent {
     config: Arc<Config>,
     providers: Vec<Box<dyn ReputationProvider>>,
     allowlist: Vec<AllowlistEntry>,
+    /// Proxies whose forwarding headers are believed
+    trusted_proxies: TrustedProxies,
     #[allow(dead_code)] // Cache is held for providers' shared access
     cache: Arc<ReputationCache>,
     /// Total requests processed.
@@ -46,6 +48,14 @@ impl IpReputationAgent {
     /// Create a new IP Reputation agent.
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         let allowlist = config.parse_allowlist();
+        let trusted_proxies = TrustedProxies::parse(&config.ip_extraction.trusted_proxies)
+            .map_err(|e| anyhow::anyhow!("ip_extraction.trusted_proxies: {}", e))?;
+        if config.ip_extraction.use_first_ip.is_some() {
+            warn!(
+                "ip_extraction.use_first_ip is no longer used: the client IP is the connection \
+                 address, or behind ip_extraction.trusted_proxies the right-most untrusted hop"
+            );
+        }
         let config = Arc::new(config);
 
         // Create shared cache
@@ -115,6 +125,7 @@ impl IpReputationAgent {
             config,
             providers,
             allowlist,
+            trusted_proxies,
             cache,
             requests_total: AtomicU64::new(0),
             requests_blocked: AtomicU64::new(0),
@@ -151,9 +162,15 @@ impl IpReputationAgent {
         self.requests_flagged.load(Ordering::Relaxed)
     }
 
-    /// Extract client IP from request headers.
-    fn extract_client_ip(&self, headers: &HashMap<String, String>) -> Option<IpAddr> {
-        extract_client_ip(headers, &self.config.ip_extraction)
+    /// Resolve the client IP: the connection address from the event metadata,
+    /// or behind a trusted proxy the right-most untrusted forwarding hop.
+    fn client_ip(&self, request: &Request) -> Option<IpAddr> {
+        resolve_client_ip(
+            request.client_ip(),
+            request.headers(),
+            &self.config.ip_extraction.headers,
+            &self.trusted_proxies,
+        )
     }
 
     /// Check if an IP is in the allowlist.
@@ -246,38 +263,6 @@ impl CombinedResult {
     }
 }
 
-/// Extract client IP from request headers.
-pub fn extract_client_ip(
-    headers: &HashMap<String, String>,
-    config: &IpExtractionConfig,
-) -> Option<IpAddr> {
-    for header_name in &config.headers {
-        let header_lower = header_name.to_lowercase();
-        if let Some(value) = headers.get(&header_lower) {
-            let ip_str = if config.use_first_ip {
-                // X-Forwarded-For: client, proxy1, proxy2
-                value.split(',').next()?.trim()
-            } else {
-                // Use the last IP (closest proxy)
-                value.split(',').next_back()?.trim()
-            };
-
-            if let Ok(ip) = ip_str.parse() {
-                return Some(ip);
-            }
-        }
-    }
-    None
-}
-
-/// Flatten multi-value headers to single values.
-fn flatten_headers(headers: &HashMap<String, Vec<String>>) -> HashMap<String, String> {
-    headers
-        .iter()
-        .map(|(k, v)| (k.to_lowercase(), v.first().cloned().unwrap_or_default()))
-        .collect()
-}
-
 #[async_trait]
 impl Agent for IpReputationAgent {
     fn name(&self) -> &str {
@@ -302,14 +287,28 @@ impl Agent for IpReputationAgent {
             return Decision::allow();
         }
 
-        let headers = flatten_headers(request.headers());
-
-        // Extract client IP
-        let ip = match self.extract_client_ip(&headers) {
+        // Resolve client IP. Without a usable address nothing can be checked;
+        // treat it like a failed lookup rather than a clean client.
+        let ip = match self.client_ip(request) {
             Some(ip) => ip,
             None => {
-                debug!("No client IP found in request headers");
-                return Decision::allow();
+                warn!(
+                    client_ip = %request.client_ip(),
+                    "No usable client IP in request metadata"
+                );
+                self.lookup_failures.fetch_add(1, Ordering::Relaxed);
+                return match self.config.settings.fail_action {
+                    FailAction::Allow => {
+                        self.requests_allowed.fetch_add(1, Ordering::Relaxed);
+                        Decision::allow().with_tag("ip-reputation:no-client-ip:allowed")
+                    }
+                    FailAction::Block => {
+                        self.requests_blocked.fetch_add(1, Ordering::Relaxed);
+                        Decision::block(403)
+                            .with_block_header("x-ip-reputation-error", "no-client-ip")
+                            .with_tag("ip-reputation:no-client-ip:blocked")
+                    }
+                };
             }
         };
 
@@ -575,99 +574,125 @@ unsafe impl Sync for IpReputationAgent {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::IpExtractionConfig;
+    use std::collections::HashMap;
 
-    #[test]
-    fn test_extract_client_ip_xff() {
-        let config = IpExtractionConfig {
-            headers: vec!["x-forwarded-for".to_string()],
-            use_first_ip: true,
+    /// Agent with a blocklist holding `blocked`, behind `trusted` proxies.
+    async fn agent_blocking(
+        blocked: &str,
+        trusted: &[&str],
+        allowlist: &[&str],
+        fail_action: FailAction,
+    ) -> (IpReputationAgent, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blocklist.txt");
+        std::fs::write(&path, format!("{}\n", blocked)).unwrap();
+        let yaml = format!(
+            "settings:\n  fail_action: {}\nip_extraction:\n  trusted_proxies: [{}]\nblocklists:\n  - name: test\n    path: {}\n",
+            match fail_action {
+                FailAction::Allow => "allow",
+                FailAction::Block => "block",
+            },
+            trusted
+                .iter()
+                .map(|t| format!("\"{}\"", t))
+                .collect::<Vec<_>>()
+                .join(", "),
+            path.display()
+        );
+        let mut config: Config = serde_yaml::from_str(&yaml).unwrap();
+        config.allowlist = allowlist.iter().map(|a| a.to_string()).collect();
+        config.validate().unwrap();
+        (IpReputationAgent::new(config).await.unwrap(), dir)
+    }
+
+    fn request(client_ip: &str, headers: &[(&str, &str)]) -> Request {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for (k, v) in headers {
+            map.entry(k.to_string()).or_default().push(v.to_string());
+        }
+        let event = zentinel_agent_protocol::RequestHeadersEvent {
+            metadata: zentinel_agent_protocol::RequestMetadata {
+                correlation_id: "test".to_string(),
+                request_id: "test".to_string(),
+                client_ip: client_ip.to_string(),
+                client_port: 40000,
+                server_name: None,
+                protocol: "HTTP/1.1".to_string(),
+                tls_version: None,
+                tls_cipher: None,
+                route_id: None,
+                upstream_id: None,
+                timestamp: "2026-10-22T00:00:00Z".to_string(),
+                traceparent: None,
+            },
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            headers: map,
         };
-
-        let mut headers = HashMap::new();
-        headers.insert(
-            "x-forwarded-for".to_string(),
-            "1.2.3.4, 5.6.7.8, 9.10.11.12".to_string(),
-        );
-
-        let ip = extract_client_ip(&headers, &config);
-        assert_eq!(ip, Some("1.2.3.4".parse().unwrap()));
+        Request::from_headers_event(&event)
     }
 
-    #[test]
-    fn test_extract_client_ip_xff_last() {
-        let config = IpExtractionConfig {
-            headers: vec!["x-forwarded-for".to_string()],
-            use_first_ip: false,
-        };
-
-        let mut headers = HashMap::new();
-        headers.insert(
-            "x-forwarded-for".to_string(),
-            "1.2.3.4, 5.6.7.8, 9.10.11.12".to_string(),
-        );
-
-        let ip = extract_client_ip(&headers, &config);
-        assert_eq!(ip, Some("9.10.11.12".parse().unwrap()));
+    fn is_block(decision: Decision) -> bool {
+        matches!(
+            decision.build().decision,
+            zentinel_agent_protocol::Decision::Block { .. }
+        )
     }
 
-    #[test]
-    fn test_extract_client_ip_x_real_ip() {
-        let config = IpExtractionConfig {
-            headers: vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()],
-            use_first_ip: true,
-        };
-
-        let mut headers = HashMap::new();
-        headers.insert("x-real-ip".to_string(), "192.168.1.1".to_string());
-
-        let ip = extract_client_ip(&headers, &config);
-        assert_eq!(ip, Some("192.168.1.1".parse().unwrap()));
+    #[tokio::test]
+    async fn test_blocked_peer_cannot_escape_with_spoofed_xff() {
+        let (agent, _dir) = agent_blocking("203.0.113.7", &[], &[], FailAction::Allow).await;
+        let req = request(
+            "203.0.113.7",
+            &[
+                ("X-Forwarded-For", "198.51.100.1"),
+                ("X-Real-IP", "198.51.100.1"),
+            ],
+        );
+        assert!(is_block(agent.on_request(&req).await));
     }
 
-    #[test]
-    fn test_extract_client_ip_priority() {
-        let config = IpExtractionConfig {
-            headers: vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()],
-            use_first_ip: true,
-        };
-
-        let mut headers = HashMap::new();
-        headers.insert("x-forwarded-for".to_string(), "1.2.3.4".to_string());
-        headers.insert("x-real-ip".to_string(), "5.6.7.8".to_string());
-
-        // Should use x-forwarded-for since it's first in the list
-        let ip = extract_client_ip(&headers, &config);
-        assert_eq!(ip, Some("1.2.3.4".parse().unwrap()));
+    #[tokio::test]
+    async fn test_spoofed_xff_cannot_frame_another_ip() {
+        let (agent, _dir) = agent_blocking("203.0.113.7", &[], &[], FailAction::Allow).await;
+        let req = request("198.51.100.1", &[("X-Forwarded-For", "203.0.113.7")]);
+        assert!(!is_block(agent.on_request(&req).await));
     }
 
-    #[test]
-    fn test_extract_client_ip_none() {
-        let config = IpExtractionConfig::default();
-        let headers = HashMap::new();
+    #[tokio::test]
+    async fn test_trusted_proxy_right_most_untrusted_hop() {
+        let (agent, _dir) =
+            agent_blocking("203.0.113.7", &["10.0.0.0/8"], &[], FailAction::Allow).await;
+        // Client 203.0.113.7 prepended a clean-looking hop; the proxies at
+        // 10.0.0.2 and 10.0.0.1 appended what they saw.
+        let req = request(
+            "10.0.0.1",
+            &[("x-forwarded-for", "198.51.100.1, 203.0.113.7, 10.0.0.2")],
+        );
+        assert!(is_block(agent.on_request(&req).await));
 
-        let ip = extract_client_ip(&headers, &config);
-        assert!(ip.is_none());
+        let req = request(
+            "10.0.0.1",
+            &[("x-forwarded-for", "203.0.113.7, 198.51.100.1")],
+        );
+        assert!(!is_block(agent.on_request(&req).await));
     }
 
-    #[test]
-    fn test_flatten_headers() {
-        let mut headers = HashMap::new();
-        headers.insert(
-            "Content-Type".to_string(),
-            vec!["application/json".to_string()],
-        );
-        headers.insert(
-            "X-Test".to_string(),
-            vec!["value1".to_string(), "value2".to_string()],
-        );
-
-        let flat = flatten_headers(&headers);
-        assert_eq!(
-            flat.get("content-type"),
-            Some(&"application/json".to_string())
-        );
-        assert_eq!(flat.get("x-test"), Some(&"value1".to_string()));
+    #[tokio::test]
+    async fn test_no_usable_ip_is_not_allowlisted() {
+        // An allowlist of everything must not admit a request with no address,
+        // nor one whose address is only claimed in a header.
+        let (agent, _dir) = agent_blocking(
+            "203.0.113.7",
+            &[],
+            &["0.0.0.0/0", "::/0"],
+            FailAction::Block,
+        )
+        .await;
+        for ip in ["", "unknown"] {
+            let req = request(ip, &[("x-forwarded-for", "198.51.100.1")]);
+            assert!(is_block(agent.on_request(&req).await), "client_ip {:?}", ip);
+        }
     }
 
     #[test]
